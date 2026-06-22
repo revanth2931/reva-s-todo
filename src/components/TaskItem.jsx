@@ -1,4 +1,5 @@
 import React from 'react';
+import { motion } from 'framer-motion';
 
 const CATEGORIES = {
   Work: {
@@ -39,15 +40,33 @@ const CATEGORIES = {
   },
 };
 
-export default function TaskItem({ task, isCompleted, onToggle, onDelete }) {
-  const categoryConfig = CATEGORIES[task.category] || CATEGORIES.Other;
-  const completionsCount = task.completedDates ? task.completedDates.length : 0;
+const itemVariants = {
+  hidden: { opacity: 0, y: 10 },
+  show: { opacity: 1, y: 0, transition: { duration: 0.2 } }
+};
+
+export default function TaskItem({ task, isCompleted, onToggle, onDelete, todayStr }) {
+  // Derived state: A task is overdue if not completed and its createdDate is before today
+  const isOverdue = !task.completed && task.createdDate < todayStr;
+  const categoryConfig = CATEGORIES[task.description] || CATEGORIES.Other;
+  const streakCount = task.streakCount || 0;
 
   return (
-    <div
+    <motion.div
+      variants={itemVariants}
+      layout
+      animate={{ 
+        opacity: isCompleted ? 0.4 : (isOverdue ? 0.75 : 1), 
+        scale: isCompleted ? 0.98 : 1,
+        y: 0
+      }}
+      exit={{ opacity: 0, scale: 0.95 }}
+      transition={{ duration: 0.18, ease: "easeInOut" }}
       className={`group flex items-center justify-between p-4.5 rounded-2xl bg-zinc-900/40 border transition-all duration-300 ease-in-out ${
         isCompleted
-          ? 'border-zinc-800/40 opacity-40 scale-[0.98] shadow-inner bg-zinc-950/20'
+          ? 'border-zinc-800/40 shadow-inner bg-zinc-950/20'
+          : isOverdue
+          ? 'border-zinc-800/80 border-l-4 border-l-amber-500/80 bg-zinc-950/10 shadow-md'
           : 'border-zinc-800/80 hover:border-zinc-700/80 hover:scale-[1.01] hover:translate-y-[-1px] hover:bg-zinc-900/60 shadow-md hover:shadow-lg'
       }`}
     >
@@ -82,20 +101,27 @@ export default function TaskItem({ task, isCompleted, onToggle, onDelete }) {
               isCompleted ? 'text-zinc-500 line-through' : 'text-zinc-100'
             }`}
           >
-            {task.name}
+            {task.title}
           </span>
           
-          <div className="flex items-center gap-2.5 mt-1.5 flex-wrap">
+          <div className="flex items-center gap-2 mt-1.5 flex-wrap">
             <span
               className={`flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold tracking-wide uppercase select-none ${categoryConfig.badge}`}
             >
               {categoryConfig.icon}
-              {task.category}
+              {task.description}
             </span>
-            <span className="text-[10px] text-zinc-500 font-semibold flex items-center gap-1 select-none">
-              <span className={`w-1 h-1 rounded-full ${categoryConfig.dot}`} />
-              {completionsCount > 0 ? `Tracked ${completionsCount} ${completionsCount === 1 ? 'day' : 'days'}` : 'Not tracked yet'}
-            </span>
+            {isOverdue && (
+              <span className="flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold tracking-wide uppercase select-none bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                Pending from {task.createdDate}
+              </span>
+            )}
+            {streakCount > 0 && (
+              <span className="text-[10px] text-zinc-500 font-semibold flex items-center gap-1 select-none">
+                <span className={`w-1 h-1 rounded-full ${categoryConfig.dot}`} />
+                🔥 {streakCount} day streak
+              </span>
+            )}
           </div>
         </div>
       </div>
@@ -110,6 +136,6 @@ export default function TaskItem({ task, isCompleted, onToggle, onDelete }) {
           <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
         </svg>
       </button>
-    </div>
+    </motion.div>
   );
 }
