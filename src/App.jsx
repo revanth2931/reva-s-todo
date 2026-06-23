@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { format, subDays } from 'date-fns';
 import { onAuthStateChanged, signInWithPopup } from 'firebase/auth';
 import { 
@@ -19,6 +19,7 @@ import Sidebar from './components/Sidebar';
 import Dashboard from './components/Dashboard';
 import HistoryView from './components/HistoryView';
 import ProfilePage from './components/ProfilePage';
+import TaskEditModal from './components/TaskEditModal';
 import { calculateStreaks } from './utils/streak';
 
 export default function App() {
@@ -26,7 +27,12 @@ export default function App() {
   const [userDoc, setUserDoc] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [tasks, setTasks] = useState([]);
-  const [todayStr, setTodayStr] = useState(() => format(new Date(), 'yyyy-MM-dd'));
+  const getAppDateString = (date = new Date()) => {
+    const offsetDate = new Date(date.getTime() - 3 * 60 * 60 * 1000);
+    return format(offsetDate, 'yyyy-MM-dd');
+  };
+
+  const [todayStr, setTodayStr] = useState(() => getAppDateString());
   const [view, setView] = useState('dashboard'); // 'dashboard' | 'history' | 'profile'
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [toast, setToast] = useState({ message: '', visible: false });
@@ -35,8 +41,19 @@ export default function App() {
   const [categories, setCategories] = useState([]);
   const [friends, setFriends] = useState([]);
   const [friendsProfiles, setFriendsProfiles] = useState({});
+  const [activeEditTask, setActiveEditTask] = useState(null);
+  // In-memory guard: tracks task IDs whose reminders have already fired this session
+  // Prevents double-sends caused by the tasks state updating before Firestore confirms reminderSent=true
+  const sentReminderIds = useRef(new Set());
 
   const yesterdayStr = format(subDays(new Date(), 1), 'yyyy-MM-dd');
+
+  // Request browser notification permissions on load
+  useEffect(() => {
+    if ("Notification" in window && Notification.permission === "default") {
+      Notification.requestPermission();
+    }
+  }, []);
 
   // Helper to show toasts
   const showToast = useCallback((message) => {
@@ -233,10 +250,10 @@ export default function App() {
     return () => unsubscribes.forEach(unsub => unsub());
   }, [friends]);
 
-  // 4. Midnight Check: Roll over date string and reset completion states
+  // 4. Daily Rollover Check: Roll over date string and clean up tasks at 3:00 AM
   useEffect(() => {
     const checkDateInterval = setInterval(() => {
-      const currentDay = format(new Date(), 'yyyy-MM-dd');
+      const currentDay = getAppDateString();
       setTodayStr((prev) => {
         if (prev !== currentDay) return currentDay;
         return prev;
@@ -246,16 +263,21 @@ export default function App() {
     return () => clearInterval(checkDateInterval);
   }, []);
 
-  // Helper to reset completed tasks from previous days (client-side trigger)
-  const resetOldCompletedTasks = useCallback(async (userUid, currentTasks) => {
+  // Helper to cleanup completed tasks and reset carry-over task states for new day
+  const cleanupOldTasks = useCallback(async (userUid, currentTasks) => {
     const batch = writeBatch(db);
     let hasUpdates = false;
 
     currentTasks.forEach((task) => {
-      // Reset completed status to false if completed date belongs to a previous day
       if (task.completed && task.completedDate && task.completedDate < todayStr) {
+        // 1. Remove completed tasks from database
         const taskRef = doc(db, 'tasks', userUid, 'items', task.id);
-        batch.update(taskRef, { completed: false });
+        batch.delete(taskRef);
+        hasUpdates = true;
+      } else if (!task.completed && task.reminderSent) {
+        // 2. Reset reminderSent to allow reminders to alert again on the new day
+        const taskRef = doc(db, 'tasks', userUid, 'items', task.id);
+        batch.update(taskRef, { reminderSent: false });
         hasUpdates = true;
       }
     });
@@ -264,16 +286,16 @@ export default function App() {
       try {
         await batch.commit();
       } catch (err) {
-        console.error("Error resetting completed tasks for new day: ", err);
+        console.error("Error cleaning up old tasks for daily rollover: ", err);
       }
     }
   }, [todayStr]);
 
-  // Reset completion trigger on day-change or list load
+  // Daily task rollover cleanup trigger on day-change or list load
   useEffect(() => {
     if (!user || tasks.length === 0) return;
-    resetOldCompletedTasks(user.uid, tasks);
-  }, [todayStr, user, resetOldCompletedTasks, tasks.length]);
+    cleanupOldTasks(user.uid, tasks);
+  }, [todayStr, user, cleanupOldTasks, tasks.length]);
 
   // 5. Update user streak logs, current streaks, and daily stats when task statuses change
   useEffect(() => {
@@ -288,7 +310,8 @@ export default function App() {
     const streakLogStatus = userDoc.streakLog?.[todayStr] === true;
 
     const statsNeedSync = currentTodayCompletedCount !== completedCount || currentTodayTotalCount !== totalCount;
-    const streakNeedsSync = totalCount > 0 && streakLogStatus !== isComplete;
+    // Streak completes if isComplete is true, otherwise it is false (or not complete)
+    const streakNeedsSync = streakLogStatus !== isComplete;
 
     if (statsNeedSync || streakNeedsSync) {
       const updates = {};
@@ -308,8 +331,120 @@ export default function App() {
     }
   }, [tasks, todayStr, user, userDoc]);
 
+  // Email Reminder Helper
+  const sendEmailReminder = async (email, taskTitle) => {
+    // 1. Browser Native Push Notification
+    if ("Notification" in window && Notification.permission === "granted") {
+      try {
+        new Notification("Task Reminder Alert ⏰", {
+          body: `Reminder for your task: "${taskTitle}"`,
+          icon: "/favicon.ico"
+        });
+      } catch (err) {
+        console.error("Failed to show browser notification:", err);
+      }
+    }
+
+    // 2. EmailJS Send (if credentials configured)
+    const serviceId = import.meta.env.VITE_EMAILJS_SERVICE_ID || "service_placeholder";
+    const templateId = import.meta.env.VITE_EMAILJS_TEMPLATE_ID || "template_placeholder";
+    const publicKey = import.meta.env.VITE_EMAILJS_PUBLIC_KEY || "user_placeholder";
+
+    if (serviceId !== "service_placeholder" && publicKey !== "user_placeholder") {
+      try {
+        const response = await fetch("https://api.emailjs.com/api/v1.0/email/send", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            service_id: serviceId,
+            template_id: templateId,
+            user_id: publicKey,
+            template_params: {
+              to_email: email,
+              task_name: taskTitle,
+              message: `Reminder for your task: "${taskTitle}"`
+            }
+          })
+        });
+        if (response.ok) {
+          console.log(`Email reminder sent successfully to ${email} for task "${taskTitle}"`);
+          return;
+        }
+      } catch (err) {
+        console.error("EmailJS send failed:", err);
+      }
+    }
+
+    // Console fallback log
+    console.log(`[MOCK EMAIL SENT] to: ${email}, subject: Reminder for your task: ${taskTitle}`);
+  };
+
+  // Background Reminder Checker (runs every 30 seconds)
+  useEffect(() => {
+    if (!user || tasks.length === 0) return;
+
+    const checkReminders = async () => {
+      const now = new Date();
+      const currentHours = now.getHours();
+      const currentMinutes = now.getMinutes();
+      const nowMinutes = currentHours * 60 + currentMinutes;
+
+      const batch = writeBatch(db);
+      let hasUpdates = false;
+
+      tasks.forEach((task) => {
+        if (
+          !task.completed &&
+          task.reminderTime &&
+          !task.reminderSent &&
+          !sentReminderIds.current.has(task.id)   // in-memory guard (same tab, race condition)
+        ) {
+          const [rHours, rMinutes] = task.reminderTime.split(':').map(Number);
+          const reminderMinutes = rHours * 60 + rMinutes;
+          const alertMinutes = reminderMinutes - 10;
+
+          // Alert triggers if current time is within the window (alertMinutes <= nowMinutes < reminderMinutes + 30)
+          if (nowMinutes >= alertMinutes && nowMinutes < reminderMinutes + 30) {
+            // Cross-tab guard: localStorage is shared across all open tabs in the same browser.
+            // Key includes today's date so it auto-expires the next day.
+            const localKey = `taskflo_reminder_${task.id}_${todayStr}`;
+            if (localStorage.getItem(localKey)) {
+              // Another tab already sent this reminder — skip
+              sentReminderIds.current.add(task.id); // keep in-memory in sync
+              return;
+            }
+
+            // Claim the send slot synchronously before any async work
+            localStorage.setItem(localKey, '1');
+            sentReminderIds.current.add(task.id);
+
+            sendEmailReminder(user.email, task.title);
+            showToast(`Reminder alert sent for task: "${task.title}"`);
+
+            const taskRef = doc(db, 'tasks', user.uid, 'items', task.id);
+            batch.update(taskRef, { reminderSent: true });
+            hasUpdates = true;
+          }
+        }
+      });
+
+
+      if (hasUpdates) {
+        try {
+          await batch.commit();
+        } catch (err) {
+          console.error("Error updating reminderSent states in background:", err);
+        }
+      }
+    };
+
+    checkReminders();
+    const interval = setInterval(checkReminders, 30000);
+    return () => clearInterval(interval);
+  }, [tasks, user, showToast]);
+
   // 6. Action Handlers
-  const handleAddTask = useCallback(async (title, description) => {
+  const handleAddTask = useCallback(async (title, description, reminderTime = null) => {
     if (!user) return;
     const taskId = crypto.randomUUID ? crypto.randomUUID() : Date.now().toString() + Math.random().toString(36).substr(2, 9);
     const taskRef = doc(db, 'tasks', user.uid, 'items', taskId);
@@ -320,7 +455,8 @@ export default function App() {
       completed: false,
       createdDate: todayStr,
       completedDate: null,
-      streakCount: 0,
+      reminderTime,
+      reminderSent: false,
     });
   }, [user, todayStr]);
 
@@ -332,20 +468,6 @@ export default function App() {
     const isCompleted = task.completed && task.completedDate === todayStr;
     const newCompleted = !isCompleted;
     const newCompletedDate = newCompleted ? todayStr : null;
-
-    // Calculate item streak counts
-    let newStreakCount = task.streakCount || 0;
-    if (newCompleted) {
-      if (task.completedDate === yesterdayStr) {
-        newStreakCount += 1;
-      } else if (task.completedDate !== todayStr) {
-        newStreakCount = 1;
-      }
-    } else {
-      if (newStreakCount > 0) {
-        newStreakCount -= 1;
-      }
-    }
 
     const taskRef = doc(db, 'tasks', user.uid, 'items', taskId);
     const userRef = doc(db, 'users', user.uid);
@@ -366,7 +488,6 @@ export default function App() {
         transaction.update(taskRef, {
           completed: newCompleted,
           completedDate: newCompletedDate,
-          streakCount: newStreakCount,
         });
 
         transaction.update(userRef, {
@@ -376,7 +497,62 @@ export default function App() {
     } catch (error) {
       console.error("Task toggle transaction failed:", error);
     }
-  }, [user, userDoc, tasks, todayStr, yesterdayStr]);
+  }, [user, userDoc, tasks, todayStr]);
+
+  const handleUpdateTask = useCallback(async (taskId, updates) => {
+    if (!user) return;
+    try {
+      const taskRef = doc(db, 'tasks', user.uid, 'items', taskId);
+      await updateDoc(taskRef, updates);
+    } catch (error) {
+      console.error('Error updating task:', error);
+    }
+  }, [user]);
+
+  const handleOpenEditTask = useCallback((task) => {
+    setActiveEditTask(task);
+  }, []);
+
+  const handleUpdateReminder = useCallback(async (taskId, reminderTime) => {
+    if (!user) return;
+    try {
+      const taskRef = doc(db, 'tasks', user.uid, 'items', taskId);
+      await updateDoc(taskRef, { 
+        reminderTime, 
+        reminderSent: false 
+      });
+      showToast(reminderTime ? `Reminder set for ${reminderTime}` : "Reminder removed");
+    } catch (error) {
+      console.error("Error updating task reminder:", error);
+    }
+  }, [user, showToast]);
+
+  const handleToggleSkipDay = useCallback(async (dateStr) => {
+    if (!user || !userDoc) return;
+
+    const currentStatus = userDoc.streakLog?.[dateStr];
+    const newStreakLog = { ...userDoc.streakLog };
+
+    if (currentStatus === 'skip') {
+      delete newStreakLog[dateStr];
+    } else {
+      newStreakLog[dateStr] = 'skip';
+    }
+
+    const { currentStreak, longestStreak } = calculateStreaks(newStreakLog, todayStr);
+
+    try {
+      await updateDoc(doc(db, 'users', user.uid), {
+        streakLog: newStreakLog,
+        currentStreak,
+        longestStreak
+      });
+      showToast(currentStatus === 'skip' ? "Skip day removed" : "Day marked as skipped!");
+    } catch (err) {
+      console.error("Error toggling skip day:", err);
+      showToast("Failed to update skip day.");
+    }
+  }, [user, userDoc, todayStr, showToast]);
 
   const handleDeleteTask = useCallback(async (taskId) => {
     if (!user) return;
@@ -462,11 +638,58 @@ export default function App() {
   // Loading Screen
   if (authLoading) {
     return (
-      <main className="min-h-screen bg-zinc-950 flex items-center justify-center p-4">
-        <svg className="w-10 h-10 animate-spin text-violet-500" fill="none" viewBox="0 0 24 24">
-          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-        </svg>
+      <main className="relative min-h-screen bg-zinc-950 text-zinc-50 flex items-center justify-center p-4 overflow-hidden font-sans">
+        {/* Ambient glows */}
+        <div className="absolute top-1/4 left-1/4 -translate-x-1/2 -translate-y-1/2 w-80 h-80 rounded-full bg-violet-600/10 blur-[120px] pointer-events-none select-none" />
+        <div className="absolute bottom-1/4 right-1/4 translate-x-1/2 translate-y-1/2 w-80 h-80 rounded-full bg-fuchsia-600/10 blur-[120px] pointer-events-none select-none" />
+
+        <div className="flex flex-col items-center gap-6 relative z-10">
+          {/* Logo container with pulsing/scaling glow */}
+          <motion.div 
+            animate={{ 
+              scale: [1, 1.06, 1],
+              boxShadow: [
+                "0 0 20px rgba(124, 58, 237, 0.2)",
+                "0 0 40px rgba(124, 58, 237, 0.4)",
+                "0 0 20px rgba(124, 58, 237, 0.2)"
+              ]
+            }}
+            transition={{ 
+              repeat: Infinity, 
+              duration: 2, 
+              ease: "easeInOut" 
+            }}
+            className="w-20 h-20 rounded-2xl bg-gradient-to-tr from-violet-600 via-indigo-600 to-fuchsia-600 flex items-center justify-center shadow-lg"
+          >
+            <svg className="w-11 h-11 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+            </svg>
+          </motion.div>
+
+          <div className="flex flex-col items-center gap-2">
+            <h1 className="text-2xl font-black bg-gradient-to-r from-zinc-50 via-zinc-200 to-zinc-400 bg-clip-text text-transparent tracking-wide">
+              TaskFlo
+            </h1>
+            <p className="text-xs text-zinc-500 font-bold tracking-widest uppercase">
+              Aligning your routine...
+            </p>
+          </div>
+
+          {/* Premium linear loading bar */}
+          <div className="w-36 h-1 bg-zinc-900 rounded-full overflow-hidden relative">
+            <motion.div 
+              className="h-full bg-gradient-to-r from-violet-500 to-fuchsia-500 rounded-full absolute inset-y-0 left-0"
+              initial={{ x: "-100%" }}
+              animate={{ x: "100%" }}
+              transition={{ 
+                repeat: Infinity, 
+                duration: 1.5, 
+                ease: "easeInOut" 
+              }}
+              style={{ width: "100%" }}
+            />
+          </div>
+        </div>
       </main>
     );
   }
@@ -486,10 +709,10 @@ export default function App() {
           </div>
           <div>
             <h1 className="text-3xl font-extrabold bg-gradient-to-r from-zinc-50 via-zinc-100 to-zinc-400 bg-clip-text text-transparent">
-              HabitFlow
+              TaskFlo
             </h1>
             <p className="text-sm text-zinc-400 mt-2">
-              Sign in with your Google account to sync habits, track streaks, and connect with connections.
+              Sign in with your Google account to sync tasks, track streaks, and connect with connections.
             </p>
           </div>
 
@@ -545,8 +768,8 @@ export default function App() {
       />
 
       <main className="flex-1 flex flex-col relative overflow-hidden z-10">
-        <div className="relative flex-1 overflow-y-auto p-4 sm:p-6 lg:py-8 lg:pr-12 lg:pl-16 flex flex-col">
-          <div className="max-w-[1100px] xl:max-w-none mx-auto xl:mx-0 w-full flex-1 flex flex-col">
+        <div className="relative flex-1 overflow-y-auto p-4 sm:p-6 lg:py-6 lg:pr-12 lg:pl-12 flex flex-col">
+          <div className="max-w-none w-full flex-1 flex flex-col">
             <Header 
               userDoc={userDoc} 
               onViewChange={handleViewChange} 
@@ -576,6 +799,7 @@ export default function App() {
                     handleToggleTask={handleToggleTask}
                     handleDeleteTask={handleDeleteTask}
                     handleAddTask={handleAddTask}
+                    handleEditTask={handleOpenEditTask}
                     userDoc={userDoc}
                     friends={friends}
                     friendsProfiles={friendsProfiles}
@@ -589,12 +813,14 @@ export default function App() {
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -10 }}
                   transition={{ duration: 0.2 }}
+                  className="w-full max-w-[1140px] mx-auto"
                 >
                   <div className="bg-zinc-900/40 border border-zinc-800/80 rounded-3xl p-6 shadow-sm backdrop-blur-md">
                     <HistoryView 
                       streakLog={userDoc?.streakLog || {}} 
                       todayStr={todayStr} 
                       isOpen={true} 
+                      onToggleSkipDay={handleToggleSkipDay}
                     />
                   </div>
                 </motion.div>
@@ -605,6 +831,7 @@ export default function App() {
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -10 }}
                   transition={{ duration: 0.2 }}
+                  className="w-full max-w-[1140px] mx-auto"
                 >
                   <ProfilePage
                     user={user}
@@ -620,6 +847,19 @@ export default function App() {
           </div>
         </div>
       </main>
+
+      {/* Task Edit Modal */}
+      {activeEditTask && (
+        <TaskEditModal
+          task={tasks.find(t => t.id === activeEditTask.id) || activeEditTask}
+          categories={categories}
+          onClose={() => setActiveEditTask(null)}
+          onToggle={handleToggleTask}
+          onUpdate={handleUpdateTask}
+          onUpdateReminder={handleUpdateReminder}
+          onDelete={handleDeleteTask}
+        />
+      )}
 
       {/* Toast Notification Container */}
       <AnimatePresence>

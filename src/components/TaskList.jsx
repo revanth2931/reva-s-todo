@@ -1,18 +1,13 @@
-import React from 'react';
+﻿import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import TaskItem from './TaskItem';
 
 const containerVariants = {
   hidden: { opacity: 0 },
-  show: {
-    opacity: 1,
-    transition: {
-      staggerChildren: 0.03
-    }
-  }
+  show: { opacity: 1, transition: { staggerChildren: 0.03 } }
 };
 
-export default function TaskList({ tasks, categories = [], todayStr, onToggle, onDelete }) {
+export default function TaskList({ tasks, categories = [], todayStr, onToggle, onDelete, onEdit }) {
   if (tasks.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-10 px-4 text-center bg-zinc-900/20 border border-dashed border-zinc-800/80 rounded-2xl animate-fadeIn">
@@ -22,18 +17,13 @@ export default function TaskList({ tasks, categories = [], todayStr, onToggle, o
           </svg>
         </div>
         <p className="text-sm font-medium text-zinc-400">No tasks for today</p>
-        <p className="text-xs text-zinc-600 mt-1">Create a new habit or task below to build your streak!</p>
+        <p className="text-xs text-zinc-600 mt-1">Create a new task below to build your streak!</p>
       </div>
     );
   }
 
   return (
-    <motion.div 
-      variants={containerVariants}
-      initial="hidden"
-      animate="show"
-      className="flex flex-col gap-1 w-full"
-    >
+    <motion.div variants={containerVariants} initial="hidden" animate="show" className="flex flex-col gap-1 w-full">
       <AnimatePresence mode="popLayout">
         {tasks.map((task) => (
           <TaskItem
@@ -42,6 +32,7 @@ export default function TaskList({ tasks, categories = [], todayStr, onToggle, o
             isCompleted={task.completed}
             onToggle={onToggle}
             onDelete={onDelete}
+            onEdit={onEdit}
             todayStr={todayStr}
             categories={categories}
           />

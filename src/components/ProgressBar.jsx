@@ -23,7 +23,7 @@ export default function ProgressBar({ completedCount = 0, totalCount = 0 }) {
           <span className="text-zinc-400 font-semibold text-sm">
             {totalCount}
           </span>
-          <p className="text-[10px] text-zinc-500 font-medium tracking-wide mt-0.5">habits completed</p>
+          <p className="text-[10px] text-zinc-500 font-medium tracking-wide mt-0.5">tasks completed</p>
         </div>
       </div>
 
