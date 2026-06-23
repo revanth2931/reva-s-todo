@@ -27,6 +27,17 @@ export default function ProfilePage({ user, userDoc, onViewChange, showToast, fr
   const [cropImageSrc, setCropImageSrc] = useState(null);
   const [showCropper, setShowCropper] = useState(false);
 
+  // States for editing name
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [editName, setEditName] = useState(userDoc?.displayName || '');
+
+  // Keep editName in sync with userDoc updates
+  useEffect(() => {
+    if (userDoc?.displayName) {
+      setEditName(userDoc.displayName);
+    }
+  }, [userDoc]);
+
   // 3. Listen to incoming and outgoing requests
   useEffect(() => {
     if (!user) return;
@@ -86,44 +97,55 @@ export default function ProfilePage({ user, userDoc, onViewChange, showToast, fr
     }
   };
 
-  // 5. Search Users (by displayName or email)
+  // Handle Edit Name
+  const handleSaveName = async (e) => {
+    e.preventDefault();
+    const trimmed = editName.trim();
+    if (!trimmed) {
+      showToast('Name cannot be empty.');
+      return;
+    }
+    try {
+      if (auth.currentUser) {
+        await updateProfile(auth.currentUser, { displayName: trimmed });
+      }
+      await updateDoc(doc(db, 'users', user.uid), { displayName: trimmed });
+      showToast('Name updated successfully!');
+      setIsEditingName(false);
+    } catch (err) {
+      console.error("Error updating profile name:", err);
+      showToast('Failed to update name.');
+    }
+  };
+
+  // 5. Search Users (ONLY by email)
   const handleSearch = async (e) => {
     e.preventDefault();
-    if (!searchQuery.trim()) return;
+    const queryStr = searchQuery.trim().toLowerCase();
+    if (!queryStr) return;
+
+    if (queryStr === user.email?.toLowerCase()) {
+      showToast("You cannot connect with yourself!");
+      return;
+    }
 
     try {
       setSearching(true);
       const results = [];
 
-      // Query by Email
       const qEmail = query(
         collection(db, 'users'), 
-        where('email', '==', searchQuery.trim()),
-        limit(5)
+        where('email', '==', queryStr),
+        limit(1)
       );
       const emailSnap = await getDocs(qEmail);
       emailSnap.forEach(docSnap => {
-        if (docSnap.id !== user.uid) {
-          results.push({ uid: docSnap.id, ...docSnap.data() });
-        }
-      });
-
-      // Query by DisplayName
-      const qName = query(
-        collection(db, 'users'), 
-        where('displayName', '==', searchQuery.trim()),
-        limit(5)
-      );
-      const nameSnap = await getDocs(qName);
-      nameSnap.forEach(docSnap => {
-        if (docSnap.id !== user.uid && !results.some(r => r.uid === docSnap.id)) {
-          results.push({ uid: docSnap.id, ...docSnap.data() });
-        }
+        results.push({ uid: docSnap.id, ...docSnap.data() });
       });
 
       setSearchResults(results);
       if (results.length === 0) {
-        showToast('No users found.');
+        showToast('No user found with that email.');
       }
     } catch (error) {
       console.error("Error searching users:", error);
@@ -282,8 +304,50 @@ export default function ProfilePage({ user, userDoc, onViewChange, showToast, fr
         </div>
 
         {/* Display Details & Stats */}
-        <div className="flex-1 text-center sm:text-left">
-          <h2 className="text-3xl lg:text-[24px] font-black text-zinc-100">{userDoc?.displayName || 'Task Tracker'}</h2>
+        <div className="flex-1 text-center sm:text-left min-w-0">
+          {isEditingName ? (
+            <form onSubmit={handleSaveName} className="flex flex-col sm:flex-row items-center gap-3 justify-center sm:justify-start">
+              <input
+                type="text"
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                className="px-3.5 py-2 rounded-xl bg-zinc-950 border border-zinc-800 focus:border-violet-500 text-zinc-100 text-xl lg:text-[16px] font-bold focus:outline-none focus:ring-1 focus:ring-violet-500 transition-all max-w-[240px]"
+                autoFocus
+                maxLength={30}
+              />
+              <div className="flex items-center gap-2">
+                <button
+                  type="submit"
+                  className="px-3.5 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-500 text-white font-bold text-xs transition-colors cursor-pointer"
+                >
+                  Save
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditName(userDoc?.displayName || '');
+                    setIsEditingName(false);
+                  }}
+                  className="px-3.5 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-bold text-xs transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          ) : (
+            <div className="flex items-center justify-center sm:justify-start gap-3 group">
+              <h2 className="text-3xl lg:text-[24px] font-black text-zinc-100 truncate max-w-full">{userDoc?.displayName || 'Task Tracker'}</h2>
+              <button
+                onClick={() => setIsEditingName(true)}
+                className="p-1.5 rounded bg-zinc-800/40 hover:bg-zinc-800 border border-zinc-800/60 text-zinc-400 hover:text-white transition-colors cursor-pointer shrink-0"
+                title="Edit name"
+              >
+                <svg className="w-5 h-5 lg:w-4 lg:h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                </svg>
+              </button>
+            </div>
+          )}
           <p className="text-sm lg:text-xs text-zinc-500 mt-1.5">{userDoc?.email}</p>
 
           <div className="flex items-center justify-center sm:justify-start gap-6 mt-6 lg:gap-4 lg:mt-4">
@@ -339,7 +403,7 @@ export default function ProfilePage({ user, userDoc, onViewChange, showToast, fr
         <form onSubmit={handleSearch} className="flex gap-3 lg:gap-2">
           <input
             type="text"
-            placeholder="Search by Display Name or Email..."
+            placeholder="Enter friend's email address..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="flex-1 px-6 py-4 lg:px-4 lg:py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 focus:border-violet-500 text-zinc-100 placeholder-zinc-600 text-[17px] lg:text-[14px] focus:outline-none focus:ring-1 focus:ring-violet-500 transition-all duration-300"
