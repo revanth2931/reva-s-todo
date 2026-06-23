@@ -51,8 +51,8 @@ Make sure you have [Node.js](https://nodejs.org/) installed.
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/revanth2931/reva-s-todo.git
-cd reva-s-todo
+git clone
+
 ```
 
 ### 2. Install dependencies
