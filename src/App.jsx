@@ -263,14 +263,20 @@ export default function App() {
     return () => clearInterval(checkDateInterval);
   }, []);
 
-  // Helper to cleanup completed tasks and reset carry-over task states for new day
+  // Helper to cleanup completed tasks older than 2 days and reset carry-over task states for new day
   const cleanupOldTasks = useCallback(async (userUid, currentTasks) => {
     const batch = writeBatch(db);
     let hasUpdates = false;
 
+    // Calculate limit date string for 2 days ago
+    const [yr, mo, dy] = todayStr.split('-').map(Number);
+    const todayDate = new Date(yr, mo - 1, dy);
+    const limitDate = subDays(todayDate, 2);
+    const limitDateStr = format(limitDate, 'yyyy-MM-dd');
+
     currentTasks.forEach((task) => {
-      if (task.completed && task.completedDate && task.completedDate < todayStr) {
-        // 1. Remove completed tasks from database
+      if (task.completed && task.completedDate && task.completedDate <= limitDateStr) {
+        // 1. Remove completed tasks older than 2 days from database
         const taskRef = doc(db, 'tasks', userUid, 'items', task.id);
         batch.delete(taskRef);
         hasUpdates = true;
@@ -301,8 +307,10 @@ export default function App() {
   useEffect(() => {
     if (!user || !userDoc) return;
 
-    const totalCount = tasks.length;
-    const completedCount = tasks.filter((t) => t.completed).length;
+    // Only count active (incomplete) tasks and tasks completed today for daily completion / streak
+    const todaysTasksList = tasks.filter((task) => !task.completed || task.completedDate === todayStr);
+    const totalCount = todaysTasksList.length;
+    const completedCount = todaysTasksList.filter((t) => t.completed).length;
     const isComplete = totalCount > 0 && completedCount === totalCount;
 
     const currentTodayCompletedCount = userDoc.todayCompletedCount || 0;
@@ -331,13 +339,25 @@ export default function App() {
     }
   }, [tasks, todayStr, user, userDoc]);
 
+  // Helper to format HH:MM (24h) to 12h display
+  const formatTime12h = (timeStr) => {
+    if (!timeStr) return '';
+    const [h, m] = timeStr.split(':').map(Number);
+    const period = h < 12 ? 'AM' : 'PM';
+    const hour = h % 12 || 12;
+    return `${hour}:${String(m).padStart(2, '0')} ${period}`;
+  };
+
   // Email Reminder Helper
-  const sendEmailReminder = async (email, taskTitle) => {
+  const sendEmailReminder = async (email, taskTitle, reminderTime) => {
+    const formattedTime = formatTime12h(reminderTime);
+    const bodyText = `Task is scheduled at ${formattedTime}`;
+
     // 1. Browser Native Push Notification
     if ("Notification" in window && Notification.permission === "granted") {
       try {
-        new Notification("Task Reminder Alert ⏰", {
-          body: `Reminder for your task: "${taskTitle}"`,
+        new Notification(taskTitle, {
+          body: bodyText,
           icon: "/favicon.ico"
         });
       } catch (err) {
@@ -362,12 +382,12 @@ export default function App() {
             template_params: {
               to_email: email,
               task_name: taskTitle,
-              message: `Reminder for your task: "${taskTitle}"`
+              message: bodyText
             }
           })
         });
         if (response.ok) {
-          console.log(`Email reminder sent successfully to ${email} for task "${taskTitle}"`);
+          console.log(`Email reminder sent successfully to ${email} for task "${taskTitle}" scheduled at ${formattedTime}`);
           return;
         }
       } catch (err) {
@@ -376,7 +396,7 @@ export default function App() {
     }
 
     // Console fallback log
-    console.log(`[MOCK EMAIL SENT] to: ${email}, subject: Reminder for your task: ${taskTitle}`);
+    console.log(`[MOCK EMAIL SENT] to: ${email}, subject: "${taskTitle}", body: ${bodyText}`);
   };
 
   // Background Reminder Checker (runs every 30 seconds)
@@ -418,7 +438,7 @@ export default function App() {
             localStorage.setItem(localKey, '1');
             sentReminderIds.current.add(task.id);
 
-            sendEmailReminder(user.email, task.title);
+            sendEmailReminder(user.email, task.title, task.reminderTime);
             showToast(`Reminder alert sent for task: "${task.title}"`);
 
             const taskRef = doc(db, 'tasks', user.uid, 'items', task.id);
@@ -733,8 +753,10 @@ export default function App() {
     );
   }
 
-  // Authenticated State View
-  const filteredTasks = tasks.filter((task) => {
+  // Filter tasks to only include active (incomplete) tasks and tasks completed today
+  const todaysTasks = tasks.filter((task) => !task.completed || task.completedDate === todayStr);
+
+  const filteredTasks = todaysTasks.filter((task) => {
     const matchesCategory = selectedCategory === 'All' || task.description === selectedCategory;
     const matchesSearch = !searchQuery || task.title.toLowerCase().includes(searchQuery.toLowerCase());
     return matchesCategory && matchesSearch;
@@ -762,7 +784,7 @@ export default function App() {
         onViewChange={handleViewChange} 
         isOpen={sidebarOpen} 
         onClose={() => setSidebarOpen(false)} 
-        tasks={tasks}
+        tasks={todaysTasks}
         categories={categories}
         selectedCategory={selectedCategory}
         onCategorySelect={(cat) => {
@@ -798,7 +820,7 @@ export default function App() {
                 >
                   <Dashboard 
                     tasks={filteredTasks}
-                    allTasks={tasks}
+                    allTasks={todaysTasks}
                     categories={categories}
                     todayStr={todayStr}
                     completedTodayCount={completedTodayCount}
