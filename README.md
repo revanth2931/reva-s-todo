@@ -63,20 +63,7 @@ npm install
 
 ### 3. Configure environment variables
 
-Create a `.env` file in the root directory and add your Firebase API configurations:
-
-```env
-VITE_FIREBASE_API_KEY=
-VITE_FIREBASE_AUTH_DOMAIN=
-VITE_FIREBASE_PROJECT_ID=
-VITE_FIREBASE_STORAGE_BUCKET=
-VITE_FIREBASE_MESSAGING_SENDER_ID=
-VITE_FIREBASE_APP_ID=
-
-VITE_EMAILJS_SERVICE_ID=
-VITE_EMAILJS_TEMPLATE_ID=
-VITE_EMAILJS_PUBLIC_KEY=
-```
+Create a `.env` file in the root directory and add your Firebase API configurations and emailjs config as shown in env.examples file
 
 ### 4. Run the development server
 
