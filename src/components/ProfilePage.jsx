@@ -14,46 +14,18 @@ import {
 import { updateProfile, signOut } from 'firebase/auth';
 import { motion, AnimatePresence } from 'framer-motion';
 import { db, auth } from '../firebase';
+import ImageCropper from './ImageCropper';
 
-export default function ProfilePage({ user, userDoc, onViewChange, showToast }) {
+export default function ProfilePage({ user, userDoc, onViewChange, showToast, friends = [], friendsProfiles = {} }) {
   const [uploading, setUploading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [searching, setSearching] = useState(false);
-  const [friends, setFriends] = useState([]);
-  const [friendsProfiles, setFriendsProfiles] = useState({});
   const [incomingRequests, setIncomingRequests] = useState([]);
   const [outgoingRequestUids, setOutgoingRequestUids] = useState(new Set());
-
-  // 1. Listen to friends list (mutual connections)
-  useEffect(() => {
-    if (!user) return;
-    const friendsRef = collection(db, 'connections', user.uid, 'friends');
-    const unsubscribe = onSnapshot(friendsRef, (snapshot) => {
-      const friendIds = snapshot.docs.map(doc => doc.id);
-      setFriends(friendIds);
-    });
-    return unsubscribe;
-  }, [user]);
-
-  // 2. Listen to friend profile documents live
-  useEffect(() => {
-    if (friends.length === 0) {
-      setFriendsProfiles({});
-      return;
-    }
-    const unsubscribes = friends.map(friendId => {
-      return onSnapshot(doc(db, 'users', friendId), (snap) => {
-        if (snap.exists()) {
-          setFriendsProfiles(prev => ({
-            ...prev,
-            [friendId]: snap.data()
-          }));
-        }
-      });
-    });
-    return () => unsubscribes.forEach(unsub => unsub());
-  }, [friends]);
+  
+  const [cropImageSrc, setCropImageSrc] = useState(null);
+  const [showCropper, setShowCropper] = useState(false);
 
   // 3. Listen to incoming and outgoing requests
   useEffect(() => {
@@ -80,66 +52,36 @@ export default function ProfilePage({ user, userDoc, onViewChange, showToast }) 
     return unsubscribe;
   }, [user]);
 
-  // 4. Handle Profile Photo Upload (Base64 Canvas Compression)
-  const handlePhotoChange = async (e) => {
+  // 4. Handle Profile Photo Upload (Trigger Cropper)
+  const handlePhotoChange = (e) => {
     const file = e.target.files[0];
     if (!file) return;
 
     try {
-      setUploading(true);
-      
       const reader = new FileReader();
       reader.onload = (event) => {
-        const img = new Image();
-        img.onload = async () => {
-          // Compress using canvas to fit Spark free tier limits without Storage
-          const canvas = document.createElement('canvas');
-          const MAX_WIDTH = 120;
-          const MAX_HEIGHT = 120;
-          let width = img.width;
-          let height = img.height;
-
-          if (width > height) {
-            if (width > MAX_WIDTH) {
-              height *= MAX_WIDTH / width;
-              width = MAX_WIDTH;
-            }
-          } else {
-            if (height > MAX_HEIGHT) {
-              width *= MAX_HEIGHT / height;
-              height = MAX_HEIGHT;
-            }
-          }
-
-          canvas.width = width;
-          canvas.height = height;
-          const ctx = canvas.getContext('2d');
-          ctx.drawImage(img, 0, 0, width, height);
-
-          // Get low-size Base64 data URL (approx 5-8KB)
-          const compressedURL = canvas.toDataURL('image/jpeg', 0.7);
-
-          try {
-            // Update Firebase Auth profile photo
-            await updateProfile(auth.currentUser, { photoURL: compressedURL });
-
-            // Update Firestore user document
-            await updateDoc(doc(db, 'users', user.uid), { photoURL: compressedURL });
-
-            showToast('Profile picture updated successfully!');
-          } catch (err) {
-            console.error("Error saving photo URL to database:", err);
-            showToast('Failed to save profile picture.');
-          } finally {
-            setUploading(false);
-          }
-        };
-        img.src = event.target.result;
+        setCropImageSrc(event.target.result);
+        setShowCropper(true);
       };
       reader.readAsDataURL(file);
     } catch (error) {
-      console.error("Error processing profile photo:", error);
-      showToast('Failed to process image.');
+      console.error("Error reading file:", error);
+      showToast('Failed to read image.');
+    }
+  };
+
+  const handleCropSave = async (croppedBase64) => {
+    setShowCropper(false);
+    setCropImageSrc(null);
+    setUploading(true);
+
+    try {
+      await updateDoc(doc(db, 'users', user.uid), { photoURL: croppedBase64 });
+      showToast('Profile picture updated successfully!');
+    } catch (err) {
+      console.error("Error saving photo URL to database:", err);
+      showToast('Failed to save profile picture.');
+    } finally {
       setUploading(false);
     }
   };
@@ -275,6 +217,17 @@ export default function ProfilePage({ user, userDoc, onViewChange, showToast }) 
 
   return (
     <div className="flex flex-col gap-6 select-none">
+      {showCropper && cropImageSrc && (
+        <ImageCropper
+          imageSrc={cropImageSrc}
+          onSave={handleCropSave}
+          onCancel={() => {
+            setShowCropper(false);
+            setCropImageSrc(null);
+          }}
+        />
+      )}
+
       {/* Header back navigation */}
       <div className="flex items-center justify-between border-b border-zinc-800/80 pb-4">
         <button

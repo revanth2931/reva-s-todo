@@ -12,7 +12,7 @@ const containerVariants = {
   }
 };
 
-export default function TaskList({ tasks, todayStr, onToggle, onDelete }) {
+export default function TaskList({ tasks, categories = [], todayStr, onToggle, onDelete }) {
   if (tasks.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-10 px-4 text-center bg-zinc-900/20 border border-dashed border-zinc-800/80 rounded-2xl animate-fadeIn">
@@ -32,7 +32,7 @@ export default function TaskList({ tasks, todayStr, onToggle, onDelete }) {
       variants={containerVariants}
       initial="hidden"
       animate="show"
-      className="flex flex-col gap-3 max-h-[420px] overflow-y-auto pr-1"
+      className="flex flex-col gap-1 w-full"
     >
       <AnimatePresence mode="popLayout">
         {tasks.map((task) => (
@@ -43,6 +43,7 @@ export default function TaskList({ tasks, todayStr, onToggle, onDelete }) {
             onToggle={onToggle}
             onDelete={onDelete}
             todayStr={todayStr}
+            categories={categories}
           />
         ))}
       </AnimatePresence>

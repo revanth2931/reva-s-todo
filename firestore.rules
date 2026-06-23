@@ -26,6 +26,12 @@ service cloud.firestore {
       allow read, write: if isSelf(userId);
     }
 
+    // Categories collection
+    // Only the user themselves can access or edit their categories
+    match /categories/{userId}/items/{categoryId} {
+      allow read, write: if isSelf(userId);
+    }
+
     // 3. Connections collection
     // Users can read connections they are part of
     // Writes are allowed if authenticated (e.g. creating/deleting friendship documents)

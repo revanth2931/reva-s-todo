@@ -15,9 +15,8 @@ import {
 import { motion, AnimatePresence } from 'framer-motion';
 import { auth, googleProvider, db } from './firebase';
 import Header from './components/Header';
-import ProgressBar from './components/ProgressBar';
-import TaskList from './components/TaskList';
-import TaskForm from './components/TaskForm';
+import Sidebar from './components/Sidebar';
+import Dashboard from './components/Dashboard';
 import HistoryView from './components/HistoryView';
 import ProfilePage from './components/ProfilePage';
 import { calculateStreaks } from './utils/streak';
@@ -28,9 +27,14 @@ export default function App() {
   const [authLoading, setAuthLoading] = useState(true);
   const [tasks, setTasks] = useState([]);
   const [todayStr, setTodayStr] = useState(() => format(new Date(), 'yyyy-MM-dd'));
-  const [historyOpen, setHistoryOpen] = useState(false);
-  const [view, setView] = useState('dashboard'); // 'dashboard' | 'profile'
+  const [view, setView] = useState('dashboard'); // 'dashboard' | 'history' | 'profile'
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [toast, setToast] = useState({ message: '', visible: false });
+  const [selectedCategory, setSelectedCategory] = useState('All');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [categories, setCategories] = useState([]);
+  const [friends, setFriends] = useState([]);
+  const [friendsProfiles, setFriendsProfiles] = useState({});
 
   const yesterdayStr = format(subDays(new Date(), 1), 'yyyy-MM-dd');
 
@@ -80,6 +84,8 @@ export default function App() {
           currentStreak: 0,
           longestStreak: 0,
           streakLog: {},
+          todayCompletedCount: 0,
+          todayTotalCount: 0,
         };
 
         // Check if there are local storage tasks to migrate
@@ -158,6 +164,75 @@ export default function App() {
     return unsubscribe;
   }, [user]);
 
+  // 3.5 Live Sync user's categories subcollection
+  useEffect(() => {
+    if (!user) {
+      setCategories([]);
+      return;
+    }
+
+    const categoriesRef = collection(db, 'categories', user.uid, 'items');
+    const unsubscribe = onSnapshot(categoriesRef, (snapshot) => {
+      const catList = snapshot.docs.map((docSnap) => ({
+        id: docSnap.id,
+        ...docSnap.data(),
+      }));
+
+      // If categories collection is empty, auto-seed defaults
+      if (catList.length === 0) {
+        const batch = writeBatch(db);
+        const defaults = [
+          { id: 'work', name: 'Work', color: '#60a5fa' },
+          { id: 'personal', name: 'Personal', color: '#c084fc' },
+          { id: 'health', name: 'Health', color: '#34d399' },
+          { id: 'other', name: 'Other', color: '#a1a1aa' }
+        ];
+        defaults.forEach((def) => {
+          const docRef = doc(db, 'categories', user.uid, 'items', def.id);
+          batch.set(docRef, { name: def.name, color: def.color });
+        });
+        batch.commit().catch(err => console.error("Error setting default categories:", err));
+      } else {
+        setCategories(catList);
+      }
+    });
+
+    return unsubscribe;
+  }, [user]);
+
+  // 3.7 Listen to friends list (mutual connections) at app-level
+  useEffect(() => {
+    if (!user) {
+      setFriends([]);
+      return;
+    }
+    const friendsRef = collection(db, 'connections', user.uid, 'friends');
+    const unsubscribe = onSnapshot(friendsRef, (snapshot) => {
+      const friendIds = snapshot.docs.map(docSnap => docSnap.id);
+      setFriends(friendIds);
+    });
+    return unsubscribe;
+  }, [user]);
+
+  // 3.8 Listen to friend profile documents live at app-level
+  useEffect(() => {
+    if (friends.length === 0) {
+      setFriendsProfiles({});
+      return;
+    }
+    const unsubscribes = friends.map(friendId => {
+      return onSnapshot(doc(db, 'users', friendId), (snap) => {
+        if (snap.exists()) {
+          setFriendsProfiles(prev => ({
+            ...prev,
+            [friendId]: snap.data()
+          }));
+        }
+      });
+    });
+    return () => unsubscribes.forEach(unsub => unsub());
+  }, [friends]);
+
   // 4. Midnight Check: Roll over date string and reset completion states
   useEffect(() => {
     const checkDateInterval = setInterval(() => {
@@ -200,24 +275,36 @@ export default function App() {
     resetOldCompletedTasks(user.uid, tasks);
   }, [todayStr, user, resetOldCompletedTasks, tasks.length]);
 
-  // 5. Update user streak logs and current streaks when daily task statuses change
+  // 5. Update user streak logs, current streaks, and daily stats when task statuses change
   useEffect(() => {
-    if (!user || !userDoc || tasks.length === 0) return;
+    if (!user || !userDoc) return;
 
     const totalCount = tasks.length;
     const completedCount = tasks.filter((t) => t.completed).length;
     const isComplete = totalCount > 0 && completedCount === totalCount;
 
-    const prevStatus = userDoc.streakLog?.[todayStr] === true;
-    if (prevStatus !== isComplete) {
-      const newStreakLog = { ...userDoc.streakLog, [todayStr]: isComplete };
-      const { currentStreak, longestStreak } = calculateStreaks(newStreakLog, todayStr);
+    const currentTodayCompletedCount = userDoc.todayCompletedCount || 0;
+    const currentTodayTotalCount = userDoc.todayTotalCount || 0;
+    const streakLogStatus = userDoc.streakLog?.[todayStr] === true;
 
-      updateDoc(doc(db, 'users', user.uid), {
-        streakLog: newStreakLog,
-        currentStreak,
-        longestStreak,
-      }).catch((err) => console.error("Error syncing streak log: ", err));
+    const statsNeedSync = currentTodayCompletedCount !== completedCount || currentTodayTotalCount !== totalCount;
+    const streakNeedsSync = totalCount > 0 && streakLogStatus !== isComplete;
+
+    if (statsNeedSync || streakNeedsSync) {
+      const updates = {};
+      if (statsNeedSync) {
+        updates.todayCompletedCount = completedCount;
+        updates.todayTotalCount = totalCount;
+      }
+      if (streakNeedsSync) {
+        const newStreakLog = { ...userDoc.streakLog, [todayStr]: isComplete };
+        const { currentStreak, longestStreak } = calculateStreaks(newStreakLog, todayStr);
+        updates.streakLog = newStreakLog;
+        updates.currentStreak = currentStreak;
+        updates.longestStreak = longestStreak;
+      }
+
+      updateDoc(doc(db, 'users', user.uid), updates).catch((err) => console.error("Error syncing user stats: ", err));
     }
   }, [tasks, todayStr, user, userDoc]);
 
@@ -301,6 +388,60 @@ export default function App() {
     }
   }, [user]);
 
+  const handleAddCategory = useCallback(async (name, color) => {
+    if (!user) return;
+    const catId = name.toLowerCase().trim().replace(/\s+/g, '-');
+    const catRef = doc(db, 'categories', user.uid, 'items', catId);
+    try {
+      await setDoc(catRef, { name, color });
+      showToast(`Category "${name}" created! ✨`);
+    } catch (error) {
+      console.error("Error creating category:", error);
+      if (error.code === 'permission-denied') {
+        showToast("Error: Deploy firestore.rules to allow category operations.");
+      } else {
+        showToast(`Failed to create category: ${error.message}`);
+      }
+      throw error;
+    }
+  }, [user, showToast]);
+
+  const handleDeleteCategory = useCallback(async (catId, catName) => {
+    if (!user) return;
+
+    try {
+      const affectedTasks = tasks.filter(t => t.description === catName);
+
+      if (affectedTasks.length > 0) {
+        const confirmMsg = `There are ${affectedTasks.length} tasks assigned to "${catName}". Do you want to delete this category and reassign these tasks to "Other"?`;
+        if (!window.confirm(confirmMsg)) return;
+
+        // Reassign tasks to "Other"
+        const batch = writeBatch(db);
+        affectedTasks.forEach((task) => {
+          const taskRef = doc(db, 'tasks', user.uid, 'items', task.id);
+          batch.update(taskRef, { description: 'Other' });
+        });
+        await batch.commit();
+      }
+
+      const catRef = doc(db, 'categories', user.uid, 'items', catId);
+      await deleteDoc(catRef);
+      showToast(`Deleted category "${catName}"`);
+
+      if (selectedCategory === catName) {
+        setSelectedCategory('All');
+      }
+    } catch (error) {
+      console.error("Error deleting category:", error);
+      if (error.code === 'permission-denied') {
+        showToast("Error: Deploy firestore.rules to allow category operations.");
+      } else {
+        showToast(`Failed to delete category: ${error.message}`);
+      }
+    }
+  }, [user, tasks, selectedCategory, showToast]);
+
   const handleSignIn = async () => {
     try {
       await signInWithPopup(auth, googleProvider);
@@ -312,6 +453,10 @@ export default function App() {
 
   const handleViewChange = useCallback((newView) => {
     setView(newView);
+    if (newView === 'dashboard') {
+      setSelectedCategory('All');
+      setSearchQuery('');
+    }
   }, []);
 
   // Loading Screen
@@ -366,131 +511,131 @@ export default function App() {
   }
 
   // Authenticated State View
-  const completedTodayCount = tasks.filter((t) => t.completed).length;
+  const filteredTasks = tasks.filter((task) => {
+    const matchesCategory = selectedCategory === 'All' || task.description === selectedCategory;
+    const matchesSearch = !searchQuery || task.title.toLowerCase().includes(searchQuery.toLowerCase());
+    return matchesCategory && matchesSearch;
+  });
+
+  const completedTodayCount = filteredTasks.filter((t) => t.completed).length;
 
   return (
-    <main className="relative min-h-screen bg-zinc-950 text-zinc-50 flex items-center justify-center p-4 sm:p-6 md:p-8 overflow-hidden font-sans">
-      
-      {/* Decorative Floating Ambient Glows */}
-      <div className="absolute top-1/4 left-1/4 -translate-x-1/2 -translate-y-1/2 w-80 h-80 rounded-full bg-violet-600/10 blur-[120px] pointer-events-none select-none" />
-      <div className="absolute bottom-1/4 right-1/4 translate-x-1/2 translate-y-1/2 w-80 h-80 rounded-full bg-fuchsia-600/10 blur-[120px] pointer-events-none select-none" />
+    <div className="flex h-screen bg-zinc-950 text-zinc-50 overflow-hidden font-sans relative">
+      {/* Fixed Ambient Gradient Light Source - Top Right */}
+      <div className="fixed -top-40 -right-40 w-[600px] h-[600px] rounded-full bg-violet-600/8 blur-[180px] pointer-events-none select-none z-0" />
 
-      {/* Main Glass Dashboard Card */}
-      <div className="relative w-full max-w-xl bg-zinc-900/40 border border-zinc-800/80 rounded-3xl p-6 sm:p-8 shadow-[0_20px_50px_rgba(0,0,0,0.5)] backdrop-blur-xl">
-        
-        {/* Toast Notification Container */}
-        <AnimatePresence>
-          {toast.visible && (
-            <motion.div
-              initial={{ opacity: 0, y: 30, scale: 0.95 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: -20, scale: 0.95 }}
-              transition={{ duration: 0.15 }}
-              className="absolute top-4 left-6 right-6 bg-zinc-900/90 border border-violet-500/30 px-4 py-3 rounded-2xl shadow-xl text-xs font-semibold text-zinc-200 z-50 flex items-center gap-2.5 backdrop-blur-md"
-            >
-              <span className="text-sm">✨</span>
-              <span>{toast.message}</span>
-            </motion.div>
-          )}
-        </AnimatePresence>
+      {/* Ambient purple glow - Bottom Center */}
+      <div className="fixed bottom-0 left-1/2 -translate-x-1/2 translate-y-1/2 w-[800px] h-[400px] rounded-t-full bg-violet-600/12 blur-[160px] pointer-events-none select-none z-0" />
 
-        <AnimatePresence mode="wait">
-          {view === 'dashboard' ? (
-            <motion.div
-              key="dashboard"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.2 }}
-              className="flex flex-col gap-6"
-            >
-              {/* Top: App name + current streak badge */}
-              <Header 
-                currentStreak={userDoc?.currentStreak || 0} 
-                longestStreak={userDoc?.longestStreak || 0} 
-              />
+      <Sidebar 
+        userDoc={userDoc} 
+        currentView={view} 
+        onViewChange={handleViewChange} 
+        isOpen={sidebarOpen} 
+        onClose={() => setSidebarOpen(false)} 
+        tasks={tasks}
+        categories={categories}
+        selectedCategory={selectedCategory}
+        onCategorySelect={(cat) => {
+          setSelectedCategory(cat);
+          setView('dashboard');
+        }}
+        onAddCategory={handleAddCategory}
+        onDeleteCategory={handleDeleteCategory}
+      />
 
-              {/* Middle: Today's task list with progress bar */}
-              <div className="flex flex-col gap-5">
-                <ProgressBar completedCount={completedTodayCount} totalCount={tasks.length} />
-                
-                <div className="space-y-3">
-                  <h2 className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest pl-1">
-                    Today's Habits
-                  </h2>
-                  <TaskList
-                    tasks={tasks}
+      <main className="flex-1 flex flex-col relative overflow-hidden z-10">
+        <div className="relative flex-1 overflow-y-auto p-4 sm:p-6 lg:py-8 lg:pr-12 lg:pl-16 flex flex-col">
+          <div className="max-w-[1100px] xl:max-w-none mx-auto xl:mx-0 w-full flex-1 flex flex-col">
+            <Header 
+              userDoc={userDoc} 
+              onViewChange={handleViewChange} 
+              onMenuToggle={() => setSidebarOpen(true)}
+              currentView={view}
+              searchQuery={searchQuery}
+              onSearchChange={setSearchQuery}
+              showToast={showToast}
+            />
+
+            <AnimatePresence mode="wait">
+              {view === 'dashboard' ? (
+                <motion.div
+                  key="dashboard"
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  transition={{ duration: 0.2 }}
+                  className="flex-1 flex flex-col"
+                >
+                  <Dashboard 
+                    tasks={filteredTasks}
+                    allTasks={tasks}
+                    categories={categories}
                     todayStr={todayStr}
-                    onToggle={handleToggleTask}
-                    onDelete={handleDeleteTask}
+                    completedTodayCount={completedTodayCount}
+                    handleToggleTask={handleToggleTask}
+                    handleDeleteTask={handleDeleteTask}
+                    handleAddTask={handleAddTask}
+                    userDoc={userDoc}
+                    friends={friends}
+                    friendsProfiles={friendsProfiles}
+                    onViewChange={handleViewChange}
                   />
-                </div>
-              </div>
-
-              {/* Bottom: "+ Add Task" button that opens an inline form */}
-              <TaskForm onAddTask={handleAddTask} />
-
-              {/* Toggle button to show/hide the 7-day history panel */}
-              <div className="flex flex-col items-center border-t border-zinc-800/60 pt-4 mt-2 gap-4">
-                <button
-                  id="toggle-history-btn"
-                  onClick={() => setHistoryOpen((prev) => !prev)}
-                  className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-zinc-500 hover:text-zinc-300 transition-all duration-300"
+                </motion.div>
+              ) : view === 'history' ? (
+                <motion.div
+                  key="history"
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  transition={{ duration: 0.2 }}
                 >
-                  {historyOpen ? 'Hide History' : 'Show History'}
-                  <svg
-                    className={`w-3.5 h-3.5 transform transition-transform duration-300 ${
-                      historyOpen ? 'rotate-180 text-violet-400' : ''
-                    }`}
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                    strokeWidth={2.5}
-                  >
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-                  </svg>
-                </button>
-
-                {/* Renders history view calendar inline */}
-                <HistoryView 
-                  streakLog={userDoc?.streakLog || {}} 
-                  todayStr={todayStr} 
-                  isOpen={historyOpen} 
-                />
-              </div>
-
-              {/* Navigation button to switch to profile tab */}
-              <div className="flex justify-center border-t border-zinc-800/60 pt-4">
-                <button
-                  onClick={() => handleViewChange('profile')}
-                  className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-zinc-400 hover:text-white transition-all duration-300"
+                  <div className="bg-zinc-900/40 border border-zinc-800/80 rounded-3xl p-6 shadow-sm backdrop-blur-md">
+                    <HistoryView 
+                      streakLog={userDoc?.streakLog || {}} 
+                      todayStr={todayStr} 
+                      isOpen={true} 
+                    />
+                  </div>
+                </motion.div>
+              ) : (
+                <motion.div
+                  key="profile"
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  transition={{ duration: 0.2 }}
                 >
-                  <svg className="w-4 h-4 text-violet-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                  </svg>
-                  Profile & Connections
-                </button>
-              </div>
-            </motion.div>
-          ) : (
-            <motion.div
-              key="profile"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.2 }}
-            >
-              <ProfilePage
-                user={user}
-                userDoc={userDoc}
-                onViewChange={handleViewChange}
-                showToast={showToast}
-              />
-            </motion.div>
-          )}
-        </AnimatePresence>
+                  <ProfilePage
+                    user={user}
+                    userDoc={userDoc}
+                    onViewChange={handleViewChange}
+                    showToast={showToast}
+                    friends={friends}
+                    friendsProfiles={friendsProfiles}
+                  />
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        </div>
+      </main>
 
-      </div>
-    </main>
+      {/* Toast Notification Container */}
+      <AnimatePresence>
+        {toast.visible && (
+          <motion.div
+            initial={{ opacity: 0, y: 30, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -20, scale: 0.95 }}
+            transition={{ duration: 0.15 }}
+            className="fixed bottom-6 right-6 lg:bottom-10 lg:right-10 bg-zinc-900/90 border border-violet-500/30 px-5 py-3.5 rounded-2xl shadow-2xl text-sm font-semibold text-zinc-200 z-50 flex items-center gap-3 backdrop-blur-md"
+          >
+            <span className="text-lg">✨</span>
+            <span>{toast.message}</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
   );
 }

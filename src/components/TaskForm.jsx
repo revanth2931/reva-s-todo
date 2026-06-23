@@ -1,11 +1,27 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 
-const CATEGORIES = ["Work", "Personal", "Health", "Other"];
-
-export default function TaskForm({ onAddTask }) {
+export default function TaskForm({ onAddTask, categories = [] }) {
   const [isOpen, setIsOpen] = useState(false);
   const [name, setName] = useState("");
   const [category, setCategory] = useState("Personal");
+  const inputRef = useRef(null);
+
+  // Sync category state with first available category if "Personal" is missing
+  useEffect(() => {
+    if (categories.length > 0) {
+      const hasSelected = categories.some(c => c.name === category);
+      if (!hasSelected) {
+        const fallback = categories.find(c => c.name === 'Personal') || categories[0];
+        setCategory(fallback.name);
+      }
+    }
+  }, [categories, category]);
+
+  useEffect(() => {
+    if (isOpen && inputRef.current) {
+      inputRef.current.focus();
+    }
+  }, [isOpen]);
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -13,121 +29,93 @@ export default function TaskForm({ onAddTask }) {
 
     onAddTask(name.trim(), category);
     setName("");
-    setCategory("Personal");
     setIsOpen(false);
   };
 
   const handleCancel = () => {
     setName("");
-    setCategory("Personal");
     setIsOpen(false);
   };
 
   return (
-    <div className="mt-4 transition-all duration-300 ease-in-out">
+    <div className="w-full">
       {!isOpen ? (
         <button
           onClick={() => setIsOpen(true)}
-          className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl border border-zinc-800/80 hover:border-violet-500/50 bg-zinc-900/40 hover:bg-zinc-900/80 text-zinc-300 hover:text-white font-medium text-sm transition-all duration-300 active:scale-[0.98]"
+          className="w-full flex items-center gap-3 py-3 px-4 rounded-xl border-t border-zinc-800/80 bg-zinc-950/80 backdrop-blur-xl text-zinc-400 hover:text-white transition-all shadow-[0_-10px_40px_rgba(0,0,0,0.5)]"
         >
           <svg
-            className="w-4 h-4 text-violet-500"
+            className="w-5 h-5 text-violet-500"
             fill="none"
             viewBox="0 0 24 24"
             stroke="currentColor"
-            strokeWidth={2.5}
+            strokeWidth={2}
           >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M12 4v16m8-8H4"
-            />
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
           </svg>
-          Add New Task
+          <span className="text-base font-medium">Add task</span>
         </button>
       ) : (
         <form
           onSubmit={handleSubmit}
-          className="p-5 rounded-xl bg-zinc-900/60 border border-zinc-800 backdrop-blur-md transition-all duration-300 ease-in-out animate-fadeIn"
+          className="w-full bg-zinc-900 border border-zinc-800 rounded-xl p-4 shadow-[0_0_40px_rgba(0,0,0,0.8)] flex flex-col gap-3 animate-fadeIn"
         >
-          <div className="space-y-4">
-            {/* Task Name Input */}
-            <div>
-              <label
-                htmlFor="task-name"
-                className="block text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-2"
-              >
-                Habit / Task Name
-              </label>
-              <input
-                id="task-name"
-                type="text"
-                placeholder="E.g., Read for 30 mins, Exercise, Meditate..."
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                autoFocus
-                className="w-full px-4 py-2.5 rounded-lg bg-zinc-950 border border-zinc-800 focus:border-violet-500 text-zinc-100 placeholder-zinc-600 text-sm focus:outline-none focus:ring-1 focus:ring-violet-500 transition-all duration-300"
-              />
+          <input
+            ref={inputRef}
+            type="text"
+            placeholder="I want to..."
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            className="w-full bg-transparent text-zinc-100 text-base placeholder-zinc-500 border-none outline-none focus:ring-0 px-1 py-2"
+          />
+          
+          <div className="flex items-center justify-between border-t border-zinc-800 pt-3">
+            {/* Dynamic Categories selector */}
+            <div className="flex gap-2 overflow-x-auto pr-2 py-0.5 max-w-[70%] scrollbar-none select-none">
+              {categories.map((cat) => {
+                const isSelected = category === cat.name;
+                return (
+                  <button
+                    key={cat.id}
+                    type="button"
+                    onClick={() => setCategory(cat.name)}
+                    className="px-3 py-1 rounded-full text-xs font-bold transition-all flex items-center gap-1.5 border border-zinc-800 shrink-0 select-none cursor-pointer"
+                    style={{
+                      backgroundColor: isSelected ? cat.color : 'transparent',
+                      color: isSelected ? '#09090b' : '#a1a1aa',
+                      borderColor: isSelected ? cat.color : '#27272a'
+                    }}
+                  >
+                    <span 
+                      className="w-1.5 h-1.5 rounded-full shrink-0"
+                      style={{ 
+                        backgroundColor: isSelected ? '#09090b' : cat.color 
+                      }} 
+                    />
+                    {cat.name}
+                  </button>
+                );
+              })}
             </div>
-
-            {/* Category Selector Grid */}
-            <div>
-              <span className="block text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-2">
-                Category
-              </span>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                {CATEGORIES.map((cat) => {
-                  const isSelected = category === cat;
-                  let colorClasses = "";
-
-                  // Categorized styling on selection
-                  if (isSelected) {
-                    if (cat === "Work")
-                      colorClasses =
-                        "bg-blue-500/10 border-blue-500/50 text-blue-400";
-                    else if (cat === "Personal")
-                      colorClasses =
-                        "bg-purple-500/10 border-purple-500/50 text-purple-400";
-                    else if (cat === "Health")
-                      colorClasses =
-                        "bg-emerald-500/10 border-emerald-500/50 text-emerald-400";
-                    else
-                      colorClasses =
-                        "bg-zinc-500/20 border-zinc-500 text-zinc-300";
-                  } else {
-                    colorClasses =
-                      "border-zinc-800 text-zinc-500 hover:border-zinc-700 hover:text-zinc-300";
-                  }
-
-                  return (
-                    <button
-                      key={cat}
-                      type="button"
-                      onClick={() => setCategory(cat)}
-                      className={`py-2 px-3 rounded-lg border text-xs font-semibold tracking-wide text-center transition-all duration-300 active:scale-95 ${colorClasses}`}
-                    >
-                      {cat}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Form Actions */}
-            <div className="flex items-center justify-end gap-2 pt-2">
+            
+            <div className="flex items-center gap-2">
               <button
                 type="button"
                 onClick={handleCancel}
-                className="px-4 py-2 rounded-lg text-zinc-400 hover:text-zinc-200 text-xs font-semibold hover:bg-zinc-800/50 transition-all duration-300"
+                className="p-1.5 rounded-lg text-zinc-500 hover:text-zinc-300 transition-colors"
               >
-                Cancel
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
               </button>
               <button
                 type="submit"
                 disabled={!name.trim()}
-                className="px-4 py-2 rounded-lg bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 disabled:from-zinc-800 disabled:to-zinc-800 text-white disabled:text-zinc-500 text-xs font-semibold shadow-md shadow-violet-500/10 transition-all duration-300 active:scale-95"
+                className="p-1.5 rounded-lg bg-violet-600 text-white disabled:bg-zinc-800 disabled:text-zinc-600 transition-colors active:scale-95"
               >
-                Save Habit
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                </svg>
               </button>
             </div>
           </div>
