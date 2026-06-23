@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import ModernTimePicker from './ModernTimePicker';
 
@@ -95,37 +95,37 @@ export default function TaskEditModal({
           onClick={(e) => e.stopPropagation()}
         >
           {/* Top Bar */}
-          <div className="flex items-center justify-between px-8 pt-7 pb-5 border-b border-zinc-800/80">
+          <div className="flex items-center justify-between px-8 lg:px-6 pt-7 lg:pt-5 pb-5 lg:pb-4 border-b border-zinc-800/80">
             {/* Breadcrumb */}
-            <div className="flex items-center gap-2.5 text-sm font-semibold text-zinc-500 min-w-0">
-              <svg className="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <div className="flex items-center gap-2.5 text-sm lg:text-xs font-semibold text-zinc-500 min-w-0">
+              <svg className="w-5 h-5 lg:w-4.5 lg:h-4.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
               </svg>
-              <span className="truncate text-base">{breadcrumb}</span>
+              <span className="truncate text-base lg:text-sm">{breadcrumb}</span>
             </div>
 
             {/* Actions: Complete + Close */}
             <div className="flex items-center gap-3 shrink-0 ml-4">
               <button
                 onClick={() => { onToggle(task.id); onClose(); }}
-                className={`flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-bold transition-all duration-150 ${
+                className={`flex items-center gap-2 px-5 py-2.5 lg:px-4 lg:py-2 rounded-full text-sm lg:text-xs font-bold transition-all duration-150 ${
                   task.completed
                     ? 'bg-violet-600/20 text-violet-400 hover:bg-violet-600/30'
                     : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200'
                 }`}
                 aria-label={task.completed ? 'Mark incomplete' : 'Mark complete'}
               >
-                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                <svg className="w-5 h-5 lg:w-4 lg:h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                 </svg>
                 {task.completed ? 'Completed' : 'Complete'}
               </button>
               <button
                 onClick={onClose}
-                className="w-11 h-11 flex items-center justify-center rounded-full text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800 transition-colors"
+                className="w-11 h-11 lg:w-9 lg:h-9 flex items-center justify-center rounded-full text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800 transition-colors"
                 aria-label="Close"
               >
-                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                <svg className="w-6 h-6 lg:w-5 lg:h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>
@@ -133,10 +133,10 @@ export default function TaskEditModal({
           </div>
 
           {/* Task Title */}
-          <div className="px-8 pt-7 pb-4">
+          <div className="px-8 lg:px-6 pt-7 lg:pt-5 pb-4 lg:pb-3">
             <div className="flex items-start gap-4">
               <span
-                className="w-5 h-5 rounded-full shrink-0 mt-2.5"
+                className="w-5 h-5 lg:w-4 lg:h-4 rounded-full shrink-0 mt-2.5 lg:mt-2"
                 style={{ backgroundColor: catColor, boxShadow: `0 0 12px ${catColor}55` }}
               />
               <textarea
@@ -146,7 +146,7 @@ export default function TaskEditModal({
                 onBlur={handleSaveTitle}
                 rows={title.length > 50 ? 3 : 2}
                 placeholder="Task name..."
-                className={`flex-1 bg-transparent text-[2rem] font-bold placeholder-zinc-600 outline-none resize-none leading-snug ${
+                className={`flex-1 bg-transparent text-[2rem] lg:text-[1.5rem] font-bold placeholder-zinc-600 outline-none resize-none leading-snug ${
                   task.completed ? 'line-through text-zinc-500' : 'text-zinc-100'
                 }`}
               />
@@ -154,22 +154,22 @@ export default function TaskEditModal({
           </div>
 
           {/* Pills Row — Remind Me */}
-          <div className="px-8 py-4 flex flex-wrap gap-3 border-t border-zinc-800/50">
+          <div className="px-8 lg:px-6 py-4 lg:py-3 flex flex-wrap gap-3 border-t border-zinc-800/50">
             <div className="flex items-center gap-2">
               {task.reminderTime ? (
-                <div className="flex items-center gap-3 bg-violet-600/15 border border-violet-500/30 rounded-full px-5 py-2.5">
-                  <svg className="w-5 h-5 text-violet-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <div className="flex items-center gap-3 bg-violet-600/15 border border-violet-500/30 rounded-full px-5 py-2.5 lg:px-4 lg:py-1.5">
+                  <svg className="w-5 h-5 lg:w-4 lg:h-4 text-violet-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
                   <span
-                    className="text-sm font-bold text-violet-300 cursor-pointer hover:text-violet-200"
+                    className="text-sm lg:text-xs font-bold text-violet-300 cursor-pointer hover:text-violet-200"
                     onClick={() => setShowTimePicker(true)}
                   >
                     {formatTime12h(task.reminderTime)}
                   </span>
                   <button
                     onClick={handleClearReminder}
-                    className="w-5 h-5 flex items-center justify-center rounded-full text-violet-400/60 hover:text-red-400 transition-colors"
+                    className="w-5 h-5 lg:w-4 lg:h-4 flex items-center justify-center rounded-full text-violet-400/60 hover:text-red-400 transition-colors"
                   >
                     <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -179,9 +179,9 @@ export default function TaskEditModal({
               ) : (
                 <button
                   onClick={() => setShowTimePicker(true)}
-                  className="flex items-center gap-2.5 bg-zinc-800/70 border border-zinc-700/60 hover:border-violet-500/40 hover:bg-zinc-800 rounded-full px-5 py-2.5 text-sm font-semibold text-zinc-400 hover:text-zinc-200 transition-all"
+                  className="flex items-center gap-2.5 bg-zinc-800/70 border border-zinc-700/60 hover:border-violet-500/40 hover:bg-zinc-800 rounded-full px-5 py-2.5 lg:px-4 lg:py-1.5 text-sm lg:text-xs font-semibold text-zinc-400 hover:text-zinc-200 transition-all"
                 >
-                  <svg className="w-5 h-5 text-zinc-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <svg className="w-5 h-5 lg:w-4 lg:h-4 text-zinc-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
                   Remind me
@@ -191,7 +191,7 @@ export default function TaskEditModal({
           </div>
 
           {/* Category Selector */}
-          <div className="px-8 pb-5">
+          <div className="px-8 lg:px-6 pb-5 lg:pb-4">
             <p className="text-xs font-bold text-zinc-600 uppercase tracking-widest mb-3">Category</p>
             <div className="flex flex-wrap gap-3">
               {categories.map((cat) => {
@@ -200,7 +200,7 @@ export default function TaskEditModal({
                   <button
                     key={cat.id}
                     onClick={() => handleCategoryChange(cat.name)}
-                    className="flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-bold transition-all border"
+                    className="flex items-center gap-2 px-5 py-2.5 lg:px-4 lg:py-2 rounded-full text-sm lg:text-xs font-bold transition-all border"
                     style={{
                       backgroundColor: isSelected ? cat.color : 'transparent',
                       color: isSelected ? '#09090b' : '#a1a1aa',
@@ -219,7 +219,7 @@ export default function TaskEditModal({
           </div>
 
           {/* Notes Area */}
-          <div className="px-8 pb-6 border-t border-zinc-800/50 pt-5">
+          <div className="px-8 lg:px-6 pb-6 lg:pb-4 border-t border-zinc-800/50 pt-5 lg:pt-4">
             <p className="text-xs font-bold text-zinc-600 uppercase tracking-widest mb-3">Notes</p>
             <textarea
               value={notes}
@@ -227,17 +227,17 @@ export default function TaskEditModal({
               onBlur={handleSaveNotes}
               rows={4}
               placeholder="Add a description or notes..."
-              className="w-full bg-zinc-950/60 border border-zinc-800/60 hover:border-zinc-700 focus:border-violet-500/50 rounded-2xl text-base text-zinc-300 placeholder-zinc-700 px-5 py-4 outline-none resize-none transition-colors focus:bg-zinc-950/80 leading-relaxed"
+              className="w-full bg-zinc-950/60 border border-zinc-800/60 hover:border-zinc-700 focus:border-violet-500/50 rounded-2xl text-base lg:text-sm text-zinc-300 placeholder-zinc-700 px-5 py-4 lg:px-4 lg:py-3 outline-none resize-none transition-colors focus:bg-zinc-950/80 leading-relaxed"
             />
           </div>
 
           {/* Footer: Delete */}
-          <div className="px-8 py-4 border-t border-zinc-800/60 flex items-center justify-end">
+          <div className="px-8 lg:px-6 py-4 lg:py-3 border-t border-zinc-800/60 flex items-center justify-end">
             <button
               onClick={() => { onDelete(task.id); onClose(); }}
-              className="flex items-center gap-2.5 text-sm font-semibold text-zinc-600 hover:text-red-400 transition-colors py-2.5 px-5 rounded-xl hover:bg-red-500/10"
+              className="flex items-center gap-2.5 text-sm lg:text-xs font-semibold text-zinc-600 hover:text-red-400 transition-colors py-2.5 px-5 lg:py-2 lg:px-4 rounded-xl hover:bg-red-500/10"
             >
-              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <svg className="w-5 h-5 lg:w-4 lg:h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
               </svg>
               Delete task

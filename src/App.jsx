@@ -747,8 +747,14 @@ export default function App() {
       {/* Fixed Ambient Gradient Light Source - Top Right */}
       <div className="fixed -top-40 -right-40 w-[600px] h-[600px] rounded-full bg-violet-600/8 blur-[180px] pointer-events-none select-none z-0" />
 
-      {/* Ambient purple glow - Bottom Center */}
-      <div className="fixed bottom-0 left-1/2 -translate-x-1/2 translate-y-1/2 w-[800px] h-[400px] rounded-t-full bg-violet-600/12 blur-[160px] pointer-events-none select-none z-0" />
+      {/* Ambient hollow purple glow - Bottom Center */}
+      <div 
+        className="fixed bottom-0 left-1/2 -translate-x-1/2 translate-y-1/2 w-[800px] h-[800px] rounded-full pointer-events-none select-none z-0 opacity-80"
+        style={{
+          background: 'radial-gradient(circle, transparent 20%, rgba(124, 58, 237, 0.16) 45%, rgba(124, 58, 237, 0.04) 70%, transparent 85%)',
+          filter: 'blur(80px)'
+        }}
+      />
 
       <Sidebar 
         userDoc={userDoc} 
@@ -768,7 +774,7 @@ export default function App() {
       />
 
       <main className="flex-1 flex flex-col relative overflow-hidden z-10">
-        <div className="relative flex-1 overflow-y-auto p-4 sm:p-6 lg:py-6 lg:pr-12 lg:pl-12 flex flex-col">
+        <div className="relative flex-1 overflow-y-auto p-4 sm:p-6 lg:py-6 lg:px-8 flex flex-col">
           <div className="max-w-none w-full flex-1 flex flex-col">
             <Header 
               userDoc={userDoc} 
@@ -788,7 +794,7 @@ export default function App() {
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -10 }}
                   transition={{ duration: 0.2 }}
-                  className="flex-1 flex flex-col"
+                  className="flex-1 flex flex-col w-full max-w-[1140px] mx-auto"
                 >
                   <Dashboard 
                     tasks={filteredTasks}
